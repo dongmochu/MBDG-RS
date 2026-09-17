@@ -13,7 +13,6 @@ from the official Zenodo record:
 - Data license: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 - Archive: `FaceEMG-11.zip`
 
-
 ## Evaluation protocol
 
 All reported experiments use participant-level leave-one-subject-out (LOSO)
@@ -40,7 +39,7 @@ pip install -r requirements.txt
 ```
 
 Deep models require a CUDA-capable PyTorch installation. Before launching a
-GPU experiment, verify that CUDA is available
+GPU experiment, verify that CUDA is available.
 
 ## Download and configure FaceEMG-11
 
@@ -70,8 +69,7 @@ export FACEEMG_RESULT_ROOT=/absolute/path/to/faceemg11_results
 If `FACEEMG_RESULT_ROOT` is omitted, outputs default to `results/` under the
 repository root.
 
-
-## Run commands
+## Paper-aligned execution order
 
 Run every command below from the repository root. Fold indices are zero-based:
 fold `0` holds out `sub-01`, and fold `11` holds out `sub-12`.
@@ -79,26 +77,44 @@ fold `0` holds out `sub-01`, and fold `11` holds out `sub-12`.
 Use new output directories when rerunning experiments. Some scripts refuse to
 overwrite existing files, while others replace files with the same name.
 
-### 1. Check the Table-2 installation
+The intended order follows the paper:
 
-This command checks the Table-2 dependency chain without loading the dataset:
+1. MBDG-RS;
+2. classical baselines;
+3. deep baselines;
+4. Table 1 paired statistics;
+5. Table 2 band-selection and component ablations;
+6. controlled channel-gain robustness.
+
+### 1. MBDG-RS
+
+Run the 12 MBDG-RS outer folds first. These files provide the MBDG-RS row for
+Table 1 and are reused by the paired primary statistics and component-ablation
+analysis.
 
 ```bash
-python run_table2_unified_ablation.py \
-  --mode describe \
-  --model all
+for fold in {0..11}; do
+  python run_mbdg_rs_ablations.py \
+    --fold "$fold" \
+    --output "results/mbdg_rs/fold_$(printf '%02d' "$fold").json"
+done
 ```
 
-Successful execution confirms that `run_frequency_band_ablation.py`,
-`run_mbdg_rs_ablations.py`, `model_names.py`, and the core modules are
-available.
+Aggregate the 12 held-out participants:
 
-### 2. Classical and geometric baselines
+```bash
+python aggregate_mbdg_rs_results.py \
+  --input results/mbdg_rs \
+  --output results/mbdg_rs/aggregate.json
+```
 
-The released classical benchmark includes TD4, AIRM, tree baselines, and
-MBDG-RS.
+The fold files also contain duration sensitivity, channel-budget sensitivity,
+and the original single-gain scale stress test. The more complete controlled
+channel-gain experiment is run in Step 6.
 
-Run all 12 outer folds:
+### 2. Classical baselines
+
+Run all classical and geometric baselines for the 12 outer folds:
 
 ```bash
 for fold in {0..11}; do
@@ -109,7 +125,7 @@ for fold in {0..11}; do
 done
 ```
 
-Aggregate the 12 participants:
+Aggregate the participant-level accuracy and macro-F1 values:
 
 ```bash
 python run_classical_baselines.py \
@@ -118,96 +134,7 @@ python run_classical_baselines.py \
   --aggregate-output results/classical/aggregate.json
 ```
 
-### 3. MBDG-RS component and sensitivity experiments
-
-Each outer fold contains:
-
-- the fixed 1.5-s representation ablation;
-- 0.5/0.75/1.0/1.5-s duration sensitivity;
-- 20/16/12/8-channel sensitivity;
-- the original single-gain channel-scale stress test.
-
-Run all folds:
-
-```bash
-for fold in {0..11}; do
-  python run_mbdg_rs_ablations.py \
-    --fold "$fold" \
-    --output "results/mbdg_rs/fold_$(printf '%02d' "$fold").json"
-done
-```
-
-Aggregate accuracy and macro-F1 across participants:
-
-```bash
-python aggregate_mbdg_rs_results.py \
-  --input results/mbdg_rs \
-  --output results/mbdg_rs/aggregate.json
-```
-
-Compute paired component-ablation statistics:
-
-```bash
-python analyze_mbdg_rs_ablations.py \
-  --input-dir results/mbdg_rs \
-  --output results/mbdg_rs/ablation_statistics.json
-```
-
-The statistical output contains participant-level differences, percentile
-bootstrap 95% confidence intervals, exact two-sided sign-flip tests, and Holm
-adjustment across the four component comparisons.
-
-### 4. Unified Table-2 experiment
-
-The unified Table-2 runner evaluates:
-
-- five fixed single-band dual-geometry representations;
-- source-selected Best-1 through Best-5 procedures;
-- five-band channel log-power;
-- five-band covariance without spectrum;
-- broadband and five-band MBDG-RS component branches;
-- full MBDG-RS.
-
-Run every configuration for all 12 folds:
-
-```bash
-for fold in {0..11}; do
-  python run_table2_unified_ablation.py \
-    --mode run \
-    --model all \
-    --fold "$fold" \
-    --output "results/table2/fold_$(printf '%02d' "$fold").json"
-done
-```
-
-Aggregate Table 2:
-
-```bash
-python run_table2_unified_ablation.py \
-  --mode aggregate \
-  --model all \
-  --input-dir results/table2 \
-  --output results/table2/aggregate.json
-```
-
-The aggregate stores the recommended Table-2 rows in
-`table2_rows_in_recommended_order`. Best-k selection frequencies and the
-combination selected in every outer fold are stored under `model_summaries`.
-
-To run only one fixed row, replace `--model all` with a model ID such as:
-
-```bash
-python run_table2_unified_ablation.py \
-  --mode run \
-  --model cov_lda \
-  --fold 0 \
-  --output results/table2_cov/fold_00.json
-```
-
-Valid fixed-row IDs include `bp_lda`, `cov_lda`,
-`five_band_dual_geometry_no_spectrum`, and `full_mbdg_rs`.
-
-### 5. Deep baselines
+### 3. Deep baselines
 
 The deep benchmark contains four architectures:
 
@@ -218,9 +145,8 @@ facial1dcnn
 cnntcn
 ```
 
-It uses one source-only inner-LOSO epoch-selection run for every architecture
-and outer fold, followed by five final training seeds (`11`, `23`, `37`, `53`,
-`71`). CUDA is required.
+For every architecture and outer fold, first perform source-only inner-LOSO
+epoch selection. CUDA is required.
 
 Generate all 48 selection artifacts:
 
@@ -236,7 +162,8 @@ for architecture in compactcnn eegnet facial1dcnn cnntcn; do
 done
 ```
 
-Run all 240 final fits:
+Then run the five final training seeds (`11`, `23`, `37`, `53`, and `71`) for
+every architecture and outer fold:
 
 ```bash
 for architecture in compactcnn eegnet facial1dcnn cnntcn; do
@@ -254,8 +181,8 @@ for architecture in compactcnn eegnet facial1dcnn cnntcn; do
 done
 ```
 
-Aggregate the five seeds within each participant and then summarize the 12
-participants:
+Aggregate the five seeds within each held-out participant and then summarize
+the 12 participant-level values:
 
 ```bash
 python aggregate_deep_results.py \
@@ -264,14 +191,14 @@ python aggregate_deep_results.py \
 ```
 
 `aggregate_deep_results.py` expects all four architectures, 12 participants,
-and five final seeds. The loops above run sequentially on GPU 0; jobs may be
-distributed across multiple GPUs as long as every expected output is produced
-exactly once.
+and five final seeds. The commands above run sequentially on GPU 0; jobs may
+be distributed across multiple GPUs as long as each expected output is
+produced exactly once.
 
-### 6. Primary MBDG-RS versus Facial CNN statistics
+### 4. Table 1 paired statistics
 
-This step requires the MBDG-RS aggregate, the 12 MBDG-RS fold files, and the
-deep-model aggregate produced above.
+After Steps 1–3 are complete, compute the paired MBDG-RS versus Facial CNN
+comparison reported with Table 1:
 
 ```bash
 python primary_stats.py \
@@ -281,17 +208,87 @@ python primary_stats.py \
   --output results/primary_statistics.json
 ```
 
-The output reports MBDG-RS minus Facial CNN for accuracy and macro-F1 using
-participant bootstrap confidence intervals and exact two-sided sign-flip
-tests.
+The output contains participant-level differences, participant-bootstrap 95%
+confidence intervals, exact two-sided sign-flip tests, and per-participant
+values for accuracy and macro-F1.
 
-### 7. Channel-gain robustness
+### 5. Table 2: band selection and component ablations
 
-The full robustness experiment uses 20 positive channel-gain draws at each of
-three severities (`0.25`, `0.5`, and `0.75`). The same gain draw is shared
-across methods and reused for every trial of a held-out participant.
+The unified Table-2 runner evaluates:
 
-#### 7.1 Deterministic methods
+- five fixed single-band dual-geometry representations;
+- source-selected Best-1 through Best-5 procedures;
+- five-band channel log-power;
+- five-band covariance without spectrum;
+- broadband and five-band MBDG-RS component branches;
+- full MBDG-RS.
+
+Before running the experiment, verify the Table-2 dependency chain without
+loading the dataset:
+
+```bash
+python run_table2_unified_ablation.py \
+  --mode describe \
+  --model all
+```
+
+Run every Table-2 configuration for all 12 folds:
+
+```bash
+for fold in {0..11}; do
+  python run_table2_unified_ablation.py \
+    --mode run \
+    --model all \
+    --fold "$fold" \
+    --output "results/table2/fold_$(printf '%02d' "$fold").json"
+done
+```
+
+Aggregate the Table-2 rows, Best-k selections, and selection frequencies:
+
+```bash
+python run_table2_unified_ablation.py \
+  --mode aggregate \
+  --model all \
+  --input-dir results/table2 \
+  --output results/table2/aggregate.json
+```
+
+The paper-ready rows are stored in `table2_rows_in_recommended_order`.
+Fold-specific Best-k combinations and aggregate selection frequencies are
+stored under `model_summaries`.
+
+Compute the paired statistical analysis for the fixed MBDG-RS component
+ablations generated in Step 1:
+
+```bash
+python analyze_mbdg_rs_ablations.py \
+  --input-dir results/mbdg_rs \
+  --output results/mbdg_rs/ablation_statistics.json
+```
+
+This output contains participant-bootstrap confidence intervals, exact
+two-sided sign-flip tests, and Holm-adjusted p-values for the component
+comparisons.
+
+To run only one Table-2 row, replace `--model all` with a model ID. For
+example:
+
+```bash
+python run_table2_unified_ablation.py \
+  --mode run \
+  --model cov_lda \
+  --fold 0 \
+  --output results/table2_cov/fold_00.json
+```
+
+### 6. Controlled channel-gain robustness
+
+Run this stage after the Table 1 and Table 2 experiments. It uses 20 positive
+channel-gain draws at each severity (`0.25`, `0.5`, and `0.75`). The same gain
+draw is shared across methods and reused for all target trials.
+
+#### 6.1 Deterministic methods
 
 Run all 12 folds:
 
@@ -304,13 +301,11 @@ for fold in {0..11}; do
 done
 ```
 
-The deterministic comparison contains six pipelines.
+#### 6.2 Facial CNN
 
-#### 7.2 Facial CNN
-
-Facial CNN robustness reuses the `facial1dcnn__sub-XX.json` selection files
-created in the deep-baseline selection stage. It also reuses the exact gain
-vectors stored in the deterministic fold outputs.
+Facial CNN robustness reuses the `facial1dcnn__sub-XX.json` source-only
+selection artifacts created in Step 3. It also reuses the exact gain vectors
+stored in the deterministic outputs from Step 6.1.
 
 Run 12 folds and five training seeds:
 
@@ -328,7 +323,7 @@ for fold in {0..11}; do
 done
 ```
 
-Aggregate deterministic and Facial CNN robustness:
+Aggregate the deterministic and Facial CNN robustness results:
 
 ```bash
 python scale_mechanism/aggregate.py \
@@ -337,13 +332,22 @@ python scale_mechanism/aggregate.py \
   --output results/scale_mechanism/aggregate.json
 ```
 
-Aggregation proceeds in this order:
+For Facial CNN, aggregation first averages 20 perturbation draws within each
+training seed, then averages five seeds within each participant, and finally
+bootstraps the 12 participant-level values.
 
-1. average 20 perturbation draws within each Facial CNN training seed;
-2. average five seeds within each held-out participant;
-3. bootstrap the resulting 12 participant-level values.
+## Main outputs
 
-
+```text
+results/
+├── mbdg_rs/
+│   ├── aggregate.json
+│   └── ablation_statistics.json
+├── classical/aggregate.json
+├── deep/aggregate.json
+├── primary_statistics.json
+├── table2/aggregate.json
+└── scale_mechanism/aggregate.json
 ```
 
 ## Dataset citation
