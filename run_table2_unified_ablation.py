@@ -764,7 +764,11 @@ def validate_fold(path, old):
     require(tuple(payload.get("completed_model_ids", [])) == expected_ids,
             "%s completed model list mismatch" % context)
     results = payload.get("results", {})
-    require(tuple(results) == expected_ids, "%s result order mismatch" % context)
+    # ``atomic_json_new`` serializes with sort_keys=True, so JSON object keys
+    # are alphabetized on disk. The explicit completed_model_ids list is the
+    # authoritative order; the results object only needs the same model set.
+    require(set(results) == set(expected_ids),
+            "%s result model set mismatch" % context)
     reference_truth = None
     for model_id in expected_ids:
         result = results[model_id]
