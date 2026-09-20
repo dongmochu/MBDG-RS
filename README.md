@@ -79,40 +79,14 @@ overwrite existing files, while others replace files with the same name.
 
 The intended order follows the paper:
 
-1. MBDG-RS;
-2. classical baselines;
-3. deep baselines;
+1. classical baselines;
+2. deep baselines;
+3. MBDG-RS;
 4. Table 1 paired statistics;
 5. Table 2 band-selection and component ablations;
 6. controlled channel-gain robustness.
 
-### 1. MBDG-RS
-
-Run the 12 MBDG-RS outer folds first. These files provide the MBDG-RS row for
-Table 1 and are reused by the paired primary statistics and component-ablation
-analysis.
-
-```bash
-for fold in {0..11}; do
-  python run_mbdg_rs_ablations.py \
-    --fold "$fold" \
-    --output "results/mbdg_rs/fold_$(printf '%02d' "$fold").json"
-done
-```
-
-Aggregate the 12 held-out participants:
-
-```bash
-python aggregate_mbdg_rs_results.py \
-  --input results/mbdg_rs \
-  --output results/mbdg_rs/aggregate.json
-```
-
-The fold files also contain duration sensitivity, channel-budget sensitivity,
-and the original single-gain scale stress test. The more complete controlled
-channel-gain experiment is run in Step 6.
-
-### 2. Classical baselines
+### 1. Classical baselines
 
 Run all classical and geometric baselines for the 12 outer folds:
 
@@ -134,7 +108,7 @@ python run_classical_baselines.py \
   --aggregate-output results/classical/aggregate.json
 ```
 
-### 3. Deep baselines
+### 2. Deep baselines
 
 The deep benchmark contains four architectures:
 
@@ -194,6 +168,32 @@ python aggregate_deep_results.py \
 and five final seeds. The commands above run sequentially on GPU 0; jobs may
 be distributed across multiple GPUs as long as each expected output is
 produced exactly once.
+
+### 3. MBDG-RS
+
+After the baseline runs, generate the 12 MBDG-RS outer-fold files. These files
+provide the MBDG-RS row for Table 1 and are reused by the paired primary
+statistics and component-ablation analysis.
+
+```bash
+for fold in {0..11}; do
+  python run_mbdg_rs_ablations.py \
+    --fold "$fold" \
+    --output "results/mbdg_rs/fold_$(printf '%02d' "$fold").json"
+done
+```
+
+Aggregate the 12 held-out participants:
+
+```bash
+python aggregate_mbdg_rs_results.py \
+  --input results/mbdg_rs \
+  --output results/mbdg_rs/aggregate.json
+```
+
+The fold files also contain duration sensitivity, channel-budget sensitivity,
+and the original single-gain scale stress test. The more complete controlled
+channel-gain experiment is run in Step 6.
 
 ### 4. Table 1 paired statistics
 
@@ -259,7 +259,7 @@ Fold-specific Best-k combinations and aggregate selection frequencies are
 stored under `model_summaries`.
 
 Compute the paired statistical analysis for the fixed MBDG-RS component
-ablations generated in Step 1:
+ablations generated in Step 3:
 
 ```bash
 python analyze_mbdg_rs_ablations.py \
@@ -304,7 +304,7 @@ done
 #### 6.2 Facial CNN
 
 Facial CNN robustness reuses the `facial1dcnn__sub-XX.json` source-only
-selection artifacts created in Step 3. It also reuses the exact gain vectors
+selection artifacts created in Step 2. It also reuses the exact gain vectors
 stored in the deterministic outputs from Step 6.1.
 
 Run 12 folds and five training seeds:
@@ -340,11 +340,11 @@ bootstraps the 12 participant-level values.
 
 ```text
 results/
+├── classical/aggregate.json
+├── deep/aggregate.json
 ├── mbdg_rs/
 │   ├── aggregate.json
 │   └── ablation_statistics.json
-├── classical/aggregate.json
-├── deep/aggregate.json
 ├── primary_statistics.json
 ├── table2/aggregate.json
 └── scale_mechanism/aggregate.json
